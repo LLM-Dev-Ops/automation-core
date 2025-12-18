@@ -1,0 +1,42 @@
+{
+  "name": "llm-automation-core",
+  "version": "1.0.0",
+  "description": "Phase-8 Layer-3 integration bundle for automation and workflow coordination",
+  "type": "module",
+  "main": "dist/lib.js",
+  "types": "dist/lib.d.ts",
+  "bin": {
+    "llm-automation": "dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/lib.js",
+    "./sdk": "./dist/sdk.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "claude-flow": "^2.7.47"
+  },
+  "peerDependencies": {
+    "llm-forge": "^7.0.0",
+    "llm-auto-optimizer": "^9.0.0",
+    "llm-orchestrator": "^11.0.0",
+    "llm-connector-hub": "^20.0.0"
+  },
+  "peerDependenciesMeta": {
+    "llm-forge": { "optional": true },
+    "llm-auto-optimizer": { "optional": true },
+    "llm-orchestrator": { "optional": true },
+    "llm-connector-hub": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0",
+    "ts-jest": "^29.0.0"
+  }
+}
