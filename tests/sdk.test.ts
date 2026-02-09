@@ -15,6 +15,7 @@ describe('AutomationClient', () => {
 
     expect(result.success).toBe(true);
     expect(result.output).toBeDefined();
+    expect(result.execution_graph).toBeDefined();
   });
 
   it('should provide run convenience method', async () => {
@@ -25,6 +26,7 @@ describe('AutomationClient', () => {
 
     expect(result.success).toBe(true);
     expect(result.metadata.modelId).toBe('fast-model');
+    expect(result.execution_graph).toBeDefined();
   });
 
   it('should work with default constructor', () => {

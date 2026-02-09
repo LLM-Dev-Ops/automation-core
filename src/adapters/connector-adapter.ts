@@ -1,7 +1,11 @@
 // Adapter for LLM-Connector-Hub (20) - Standardized provider adapters
 // This adapter delegates to LLM-Connector-Hub for provider resolution
 
-import type { ProviderAdapter, OptimizationSignal } from '../types.js';
+import type {
+  ProviderAdapter, OptimizationSignal,
+  InstrumentedResult, SpanEvidence,
+} from '../types.js';
+import { createSpan, completeSpan } from '../execution/spans.js';
 
 /** Stub interface matching LLM-Connector-Hub's exported API */
 interface ConnectorHubClient {
@@ -17,14 +21,55 @@ export function createConnectorAdapter(client?: ConnectorHubClient): ConnectorAd
 class ConnectorAdapter {
   constructor(private client: ConnectorHubClient) {}
 
-  async resolveProvider(signal: OptimizationSignal): Promise<ProviderAdapter> {
-    if (signal.recommendedProvider) {
-      const provider = await this.client.getProvider(signal.recommendedProvider);
-      if (provider && await provider.isAvailable()) {
-        return provider;
+  async resolveProvider(
+    signal: OptimizationSignal,
+    parentSpanId: string
+  ): Promise<InstrumentedResult<ProviderAdapter>> {
+    const repoSpan = createSpan({
+      type: 'repo',
+      name: 'llm-connector-hub',
+      repo_name: 'llm-connector-hub',
+      parent_span_id: parentSpanId,
+    });
+
+    const agentSpan = createSpan({
+      type: 'agent',
+      name: 'provider-resolver-agent',
+      parent_span_id: repoSpan.span_id,
+    });
+
+    let provider: ProviderAdapter;
+    try {
+      if (signal.recommendedProvider) {
+        const found = await this.client.getProvider(signal.recommendedProvider);
+        if (found && await found.isAvailable()) {
+          provider = found;
+        } else {
+          provider = await this.client.getDefaultProvider();
+        }
+      } else {
+        provider = await this.client.getDefaultProvider();
       }
+    } catch (error) {
+      const spans = [
+        completeSpan(repoSpan, { status: 'failed' }),
+        completeSpan(agentSpan, { status: 'failed' }),
+      ];
+      throw Object.assign(error as Error, { spans });
     }
-    return this.client.getDefaultProvider();
+
+    const evidence: SpanEvidence[] = [{
+      id: `provider-${provider.id}`,
+      type: 'provider-resolution',
+      uri: `provider://${provider.id}`,
+    }];
+
+    const spans = [
+      completeSpan(repoSpan),
+      completeSpan(agentSpan, { evidence }),
+    ];
+
+    return { result: provider, spans };
   }
 }
 

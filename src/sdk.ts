@@ -2,10 +2,20 @@
 // Programmatic interface for automation integration
 
 import { createAutomationCore, AutomationService } from './lib.js';
-import type { AutomationRequest, AutomationResult, RoutingHints } from './types.js';
+import type { AutomationRequest, CoreExecutionResult, RoutingHints } from './types.js';
 
-export type { AutomationRequest, AutomationResult, RoutingHints };
-export type { ExecutionMetadata, PipelineDefinition, OptimizationSignal } from './types.js';
+export type { AutomationRequest, CoreExecutionResult, RoutingHints };
+export type {
+  AutomationResult,
+  ExecutionMetadata,
+  PipelineDefinition,
+  OptimizationSignal,
+  ExecutionGraph,
+  ExecutionSpan,
+  SpanArtifact,
+  SpanEvidence,
+  InstrumentedResult,
+} from './types.js';
 
 /** SDK client for LLM-Automation-Core */
 export class AutomationClient {
@@ -15,8 +25,8 @@ export class AutomationClient {
     this.service = service ?? createAutomationCore();
   }
 
-  /** Execute an automation request */
-  async execute(request: AutomationRequest): Promise<AutomationResult> {
+  /** Execute an automation request with full execution graph */
+  async execute(request: AutomationRequest): Promise<CoreExecutionResult> {
     return this.service.execute(request);
   }
 
@@ -24,7 +34,7 @@ export class AutomationClient {
   async run(
     input: Record<string, unknown>,
     options?: { pipelineId?: string; hints?: RoutingHints }
-  ): Promise<AutomationResult> {
+  ): Promise<CoreExecutionResult> {
     return this.execute({
       input,
       pipelineId: options?.pipelineId,

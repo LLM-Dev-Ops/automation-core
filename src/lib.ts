@@ -5,6 +5,7 @@ export * from './types.js';
 export * from './adapters/index.js';
 export * from './services/index.js';
 export * from './handlers/index.js';
+export * from './execution/index.js';
 
 import {
   createForgeAdapter,

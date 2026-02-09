@@ -23,6 +23,7 @@ export interface ExecutionOptions {
   timeout?: number;
   retryPolicy?: string;
   traceId?: string;
+  parentSpanId?: string;
 }
 
 /** Structured result from automation execution */
@@ -75,4 +76,54 @@ export interface WorkflowContext {
   workflowId: string;
   state: Record<string, unknown>;
   execute(step: PipelineStep, provider: ProviderAdapter): Promise<unknown>;
+}
+
+// ────────────────────────────────────────────────────────
+// Execution graph types for agentics-execution-engine
+// ────────────────────────────────────────────────────────
+
+/** A single execution span in the hierarchical execution graph */
+export interface ExecutionSpan {
+  type: 'core' | 'repo' | 'agent';
+  name: string;
+  span_id: string;
+  parent_span_id: string | null;
+  start_time: string;
+  end_time?: string;
+  status: 'running' | 'completed' | 'failed';
+  repo_name?: string;
+  artifacts?: SpanArtifact[];
+  evidence?: SpanEvidence[];
+}
+
+/** Artifact attached at the lowest possible span level */
+export interface SpanArtifact {
+  id: string;
+  type: string;
+  reference: string;
+}
+
+/** Machine-verifiable evidence reference */
+export interface SpanEvidence {
+  id: string;
+  type: string;
+  uri: string;
+}
+
+/** Hierarchical, append-only execution graph preserving causal ordering */
+export interface ExecutionGraph {
+  root_span_id: string;
+  spans: ExecutionSpan[];
+}
+
+/** Core execution result conforming to agentics-execution-engine contract */
+export interface CoreExecutionResult extends AutomationResult {
+  execution_graph: ExecutionGraph;
+  failure_reasons?: string[];
+}
+
+/** Result wrapper for instrumented adapter invocations */
+export interface InstrumentedResult<T> {
+  result: T;
+  spans: ExecutionSpan[];
 }

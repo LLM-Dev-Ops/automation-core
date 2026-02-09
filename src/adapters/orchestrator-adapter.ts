@@ -1,7 +1,11 @@
 // Adapter for LLM-Orchestrator (11) - Workflow and multi-model pipeline execution
 // This adapter delegates to LLM-Orchestrator for workflow execution
 
-import type { PipelineDefinition, ProviderAdapter, WorkflowContext } from '../types.js';
+import type {
+  PipelineDefinition, ProviderAdapter, WorkflowContext,
+  InstrumentedResult, SpanArtifact, SpanEvidence,
+} from '../types.js';
+import { createSpan, completeSpan } from '../execution/spans.js';
 
 /** Stub interface matching LLM-Orchestrator's exported API */
 interface OrchestratorClient {
@@ -25,11 +29,54 @@ class OrchestratorAdapter {
   async execute(
     pipeline: PipelineDefinition,
     provider: ProviderAdapter,
-    input: Record<string, unknown>
-  ): Promise<{ workflowId: string; output: unknown }> {
-    const context = await this.client.createWorkflow(pipeline.id);
-    const output = await this.client.executeWorkflow(context, pipeline, provider, input);
-    return { workflowId: context.workflowId, output };
+    input: Record<string, unknown>,
+    parentSpanId: string
+  ): Promise<InstrumentedResult<{ workflowId: string; output: unknown }>> {
+    const repoSpan = createSpan({
+      type: 'repo',
+      name: 'llm-orchestrator',
+      repo_name: 'llm-orchestrator',
+      parent_span_id: parentSpanId,
+    });
+
+    const agentSpan = createSpan({
+      type: 'agent',
+      name: 'workflow-executor-agent',
+      parent_span_id: repoSpan.span_id,
+    });
+
+    let workflowId: string;
+    let output: unknown;
+    try {
+      const context = await this.client.createWorkflow(pipeline.id);
+      output = await this.client.executeWorkflow(context, pipeline, provider, input);
+      workflowId = context.workflowId;
+    } catch (error) {
+      const spans = [
+        completeSpan(repoSpan, { status: 'failed' }),
+        completeSpan(agentSpan, { status: 'failed' }),
+      ];
+      throw Object.assign(error as Error, { spans });
+    }
+
+    const artifacts: SpanArtifact[] = [{
+      id: `workflow-${workflowId}`,
+      type: 'workflow-execution',
+      reference: workflowId,
+    }];
+
+    const evidence: SpanEvidence[] = [{
+      id: `wf-result-${workflowId}`,
+      type: 'workflow-completion',
+      uri: `workflow://${workflowId}`,
+    }];
+
+    const spans = [
+      completeSpan(repoSpan),
+      completeSpan(agentSpan, { artifacts, evidence }),
+    ];
+
+    return { result: { workflowId, output }, spans };
   }
 }
 

@@ -1,7 +1,7 @@
 // Handler for automation execution requests
 // Validates input and delegates to AutomationService
 
-import type { AutomationRequest, AutomationResult } from '../types.js';
+import type { AutomationRequest, CoreExecutionResult } from '../types.js';
 import type { AutomationService } from '../services/automation-service.js';
 
 export interface ExecuteHandlerDeps {
@@ -12,7 +12,7 @@ export interface ExecuteHandlerDeps {
 export async function handleExecute(
   deps: ExecuteHandlerDeps,
   request: unknown
-): Promise<AutomationResult> {
+): Promise<CoreExecutionResult> {
   const validated = validateRequest(request);
   return deps.automationService.execute(validated);
 }

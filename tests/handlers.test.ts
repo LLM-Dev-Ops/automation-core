@@ -11,6 +11,7 @@ describe('handleExecute', () => {
     });
 
     expect(result.success).toBe(true);
+    expect(result.execution_graph).toBeDefined();
   });
 
   it('should reject invalid request without input', async () => {
@@ -34,5 +35,6 @@ describe('handleExecute', () => {
 
     expect(result.success).toBe(true);
     expect(result.metadata.pipelineId).toBe('test-pipe');
+    expect(result.execution_graph).toBeDefined();
   });
 });

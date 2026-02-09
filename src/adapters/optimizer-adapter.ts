@@ -1,7 +1,11 @@
 // Adapter for LLM-Auto-Optimizer (9) - Feedback-driven optimization signals
 // This adapter delegates to LLM-Auto-Optimizer for routing recommendations
 
-import type { OptimizationSignal, RoutingHints, PipelineDefinition } from '../types.js';
+import type {
+  OptimizationSignal, RoutingHints, PipelineDefinition,
+  InstrumentedResult, SpanArtifact,
+} from '../types.js';
+import { createSpan, completeSpan } from '../execution/spans.js';
 
 /** Stub interface matching LLM-Auto-Optimizer's exported API */
 interface OptimizerClient {
@@ -21,9 +25,50 @@ class OptimizerAdapter {
 
   async getSignal(
     pipeline: PipelineDefinition,
-    hints?: RoutingHints
-  ): Promise<OptimizationSignal> {
-    return this.client.getOptimizationSignal(pipeline.id, hints);
+    hints: RoutingHints | undefined,
+    parentSpanId: string
+  ): Promise<InstrumentedResult<OptimizationSignal>> {
+    const repoSpan = createSpan({
+      type: 'repo',
+      name: 'llm-auto-optimizer',
+      repo_name: 'llm-auto-optimizer',
+      parent_span_id: parentSpanId,
+    });
+
+    const agentSpan = createSpan({
+      type: 'agent',
+      name: 'optimization-signal-agent',
+      parent_span_id: repoSpan.span_id,
+    });
+
+    let signal: OptimizationSignal;
+    try {
+      signal = await this.client.getOptimizationSignal(pipeline.id, hints);
+    } catch (error) {
+      const spans = [
+        completeSpan(repoSpan, { status: 'failed' }),
+        completeSpan(agentSpan, { status: 'failed' }),
+      ];
+      throw Object.assign(error as Error, { spans });
+    }
+
+    const artifacts: SpanArtifact[] = [];
+    if (signal.recommendedProvider) {
+      artifacts.push({
+        id: `opt-provider-${signal.recommendedProvider}`,
+        type: 'optimization-recommendation',
+        reference: signal.recommendedProvider,
+      });
+    }
+
+    const spans = [
+      completeSpan(repoSpan),
+      completeSpan(agentSpan, {
+        artifacts: artifacts.length > 0 ? artifacts : undefined,
+      }),
+    ];
+
+    return { result: signal, spans };
   }
 }
 

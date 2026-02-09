@@ -1,7 +1,8 @@
 // Adapter for LLM-Forge (7) - Pipeline and SDK definitions
 // This adapter delegates to LLM-Forge for pipeline resolution
 
-import type { PipelineDefinition } from '../types.js';
+import type { PipelineDefinition, InstrumentedResult, SpanArtifact } from '../types.js';
+import { createSpan, completeSpan } from '../execution/spans.js';
 
 /** Stub interface matching LLM-Forge's exported API */
 interface ForgeClient {
@@ -17,12 +18,51 @@ export function createForgeAdapter(client?: ForgeClient): ForgeAdapter {
 class ForgeAdapter {
   constructor(private client: ForgeClient) {}
 
-  async resolvePipeline(pipelineId?: string): Promise<PipelineDefinition> {
-    if (pipelineId) {
-      const pipeline = await this.client.getPipeline(pipelineId);
-      if (pipeline) return pipeline;
+  async resolvePipeline(
+    pipelineId: string | undefined,
+    parentSpanId: string
+  ): Promise<InstrumentedResult<PipelineDefinition>> {
+    const repoSpan = createSpan({
+      type: 'repo',
+      name: 'llm-forge',
+      repo_name: 'llm-forge',
+      parent_span_id: parentSpanId,
+    });
+
+    const agentSpan = createSpan({
+      type: 'agent',
+      name: 'forge-pipeline-resolver',
+      parent_span_id: repoSpan.span_id,
+    });
+
+    let pipeline: PipelineDefinition;
+    try {
+      if (pipelineId) {
+        const found = await this.client.getPipeline(pipelineId);
+        pipeline = found ?? await this.client.getDefaultPipeline();
+      } else {
+        pipeline = await this.client.getDefaultPipeline();
+      }
+    } catch (error) {
+      const spans = [
+        completeSpan(repoSpan, { status: 'failed' }),
+        completeSpan(agentSpan, { status: 'failed' }),
+      ];
+      throw Object.assign(error as Error, { spans });
     }
-    return this.client.getDefaultPipeline();
+
+    const artifacts: SpanArtifact[] = [{
+      id: `pipeline-${pipeline.id}`,
+      type: 'pipeline-definition',
+      reference: pipeline.id,
+    }];
+
+    const spans = [
+      completeSpan(repoSpan),
+      completeSpan(agentSpan, { artifacts }),
+    ];
+
+    return { result: pipeline, spans };
   }
 }
 

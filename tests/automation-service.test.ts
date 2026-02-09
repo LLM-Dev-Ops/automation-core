@@ -57,6 +57,16 @@ describe('AutomationService', () => {
 
     expect(result.metadata.optimizationApplied).toBeDefined();
   });
+
+  it('should include execution_graph in result', async () => {
+    const result = await service.execute({
+      input: { prompt: 'test' },
+    });
+
+    expect(result.execution_graph).toBeDefined();
+    expect(result.execution_graph.root_span_id).toBeDefined();
+    expect(result.execution_graph.spans.length).toBeGreaterThan(0);
+  });
 });
 
 describe('AutomationService with custom adapters', () => {
@@ -70,5 +80,6 @@ describe('AutomationService with custom adapters', () => {
 
     const result = await service.execute({ input: {} });
     expect(result.success).toBe(true);
+    expect(result.execution_graph).toBeDefined();
   });
 });
