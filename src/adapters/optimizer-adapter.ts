@@ -7,17 +7,17 @@ import type {
 } from '../types.js';
 import { createSpan, completeSpan } from '../execution/spans.js';
 
-/** Stub interface matching LLM-Auto-Optimizer's exported API */
-interface OptimizerClient {
+/** Interface matching LLM-Auto-Optimizer's exported API */
+export interface OptimizerClient {
   getOptimizationSignal(
     pipelineId: string,
     hints?: RoutingHints
   ): Promise<OptimizationSignal>;
 }
 
-/** Creates an optimizer adapter - in production, inject the real client */
-export function createOptimizerAdapter(client?: OptimizerClient): OptimizerAdapter {
-  return new OptimizerAdapter(client ?? createSimulatorClient());
+/** Creates an optimizer adapter - client is REQUIRED (mandate 5) */
+export function createOptimizerAdapter(client: OptimizerClient): OptimizerAdapter {
+  return new OptimizerAdapter(client);
 }
 
 class OptimizerAdapter {
@@ -72,8 +72,8 @@ class OptimizerAdapter {
   }
 }
 
-/** Simulator-compatible stub client */
-function createSimulatorClient(): OptimizerClient {
+/** Stub client for testing and development only */
+export function createStubOptimizerClient(): OptimizerClient {
   return {
     async getOptimizationSignal(pipelineId: string, hints?: RoutingHints) {
       return {

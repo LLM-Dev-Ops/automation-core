@@ -7,15 +7,15 @@ import type {
 } from '../types.js';
 import { createSpan, completeSpan } from '../execution/spans.js';
 
-/** Stub interface matching LLM-Connector-Hub's exported API */
-interface ConnectorHubClient {
+/** Interface matching LLM-Connector-Hub's exported API */
+export interface ConnectorHubClient {
   getProvider(providerId: string): Promise<ProviderAdapter | null>;
   getDefaultProvider(): Promise<ProviderAdapter>;
 }
 
-/** Creates a connector adapter - in production, inject the real client */
-export function createConnectorAdapter(client?: ConnectorHubClient): ConnectorAdapter {
-  return new ConnectorAdapter(client ?? createSimulatorClient());
+/** Creates a connector adapter - client is REQUIRED (mandate 5) */
+export function createConnectorAdapter(client: ConnectorHubClient): ConnectorAdapter {
+  return new ConnectorAdapter(client);
 }
 
 class ConnectorAdapter {
@@ -73,8 +73,8 @@ class ConnectorAdapter {
   }
 }
 
-/** Simulator-compatible stub client */
-function createSimulatorClient(): ConnectorHubClient {
+/** Stub client for testing and development only */
+export function createStubConnectorHubClient(): ConnectorHubClient {
   const createStubProvider = (id: string): ProviderAdapter => ({
     id,
     async execute(request: unknown) {

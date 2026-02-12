@@ -13,6 +13,38 @@ export function buildExecutionGraph(
   return { root_span_id: rootSpanId, spans };
 }
 
+/**
+ * Validates spans returned by a single delegation call.
+ * Mandate 3: Each delegation MUST create a repo-level span,
+ * require agent-level spans, and fail if spans are missing.
+ * Throws on invalid delegation spans.
+ */
+export function validateDelegationSpans(
+  spans: ExecutionSpan[],
+  expectedRepoName: string
+): void {
+  const repoSpans = spans.filter(
+    (s) => s.type === 'repo' && s.repo_name === expectedRepoName
+  );
+  if (repoSpans.length === 0) {
+    throw new Error(
+      `Delegation to '${expectedRepoName}' produced no repo-level span`
+    );
+  }
+
+  for (const repoSpan of repoSpans) {
+    const agentChildren = spans.filter(
+      (s) => s.type === 'agent' && s.parent_span_id === repoSpan.span_id
+    );
+    if (agentChildren.length === 0) {
+      throw new Error(
+        `Delegation to '${expectedRepoName}' failed: ` +
+        `repo span '${repoSpan.span_id}' lacks required agent-level spans`
+      );
+    }
+  }
+}
+
 export function validateExecutionGraph(
   graph: ExecutionGraph
 ): GraphValidationResult {

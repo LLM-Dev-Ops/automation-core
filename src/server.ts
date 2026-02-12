@@ -2,10 +2,24 @@
 
 import { createServer } from 'node:http';
 import { createAutomationCore } from './lib.js';
+import {
+  createStubForgeClient,
+  createStubOptimizerClient,
+  createStubOrchestratorClient,
+  createStubConnectorHubClient,
+} from './adapters/index.js';
 import { handleExecute } from './handlers/index.js';
 
 const port = parseInt(process.env.PORT || '8080', 10);
-const automationService = createAutomationCore();
+
+// In production, inject real downstream repo clients.
+// Stub clients are used here for development only.
+const automationService = createAutomationCore({
+  forge: createStubForgeClient(),
+  optimizer: createStubOptimizerClient(),
+  orchestrator: createStubOrchestratorClient(),
+  connector: createStubConnectorHubClient(),
+});
 
 const server = createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/health') {

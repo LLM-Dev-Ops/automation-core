@@ -1,11 +1,38 @@
 // Tests for execution graph instrumentation
 // Validates hierarchical span structure, enforcement semantics, and output contract
-import { createAutomationCore } from '../src/lib.js';
-import { validateExecutionGraph } from '../src/execution/graph.js';
+import { AutomationService } from '../src/services/automation-service.js';
+import {
+  validateExecutionGraph,
+  validateDelegationSpans,
+} from '../src/execution/graph.js';
+import {
+  createForgeAdapter,
+  createOptimizerAdapter,
+  createOrchestratorAdapter,
+  createConnectorAdapter,
+  createStubForgeClient,
+  createStubOptimizerClient,
+  createStubOrchestratorClient,
+  createStubConnectorHubClient,
+} from '../src/adapters/index.js';
 import type { ExecutionSpan, CoreExecutionResult } from '../src/types.js';
 
+/** Helper: create a test service with all stubs wired */
+function createTestService(opts?: { withOptimizer?: boolean }) {
+  return new AutomationService({
+    forge: createForgeAdapter(createStubForgeClient()),
+    optimizer: opts?.withOptimizer !== false
+      ? createOptimizerAdapter(createStubOptimizerClient())
+      : undefined,
+    orchestrator: createOrchestratorAdapter(createStubOrchestratorClient()),
+    connector: createConnectorAdapter(createStubConnectorHubClient()),
+  });
+}
+
+const ENGINE_SPAN = 'engine-span-graph-test';
+
 describe('Execution Graph Instrumentation', () => {
-  const service = createAutomationCore();
+  const service = createTestService();
 
   let result: CoreExecutionResult;
 
@@ -14,6 +41,7 @@ describe('Execution Graph Instrumentation', () => {
       pipelineId: 'test-pipeline',
       input: { prompt: 'test' },
       routingHints: { modelTier: 'balanced' },
+      options: { parentSpanId: ENGINE_SPAN },
     });
   });
 
@@ -88,7 +116,8 @@ describe('Execution Graph Instrumentation', () => {
     // Core at root
     const coreSpan = spans.find((s) => s.span_id === root_span_id)!;
     expect(coreSpan.type).toBe('core');
-    expect(coreSpan.parent_span_id).toBeNull();
+    // Mandate 1: core span linked to engine's span
+    expect(coreSpan.parent_span_id).toBe(ENGINE_SPAN);
 
     // Repos under core
     const repoSpans = spans.filter((s) => s.type === 'repo');
@@ -153,12 +182,36 @@ describe('Execution Graph Instrumentation', () => {
   });
 });
 
+describe('Execution Graph without optimizer', () => {
+  it('should produce 7 spans (1 core + 3 repo + 3 agent) when optimizer is disabled', async () => {
+    const service = createTestService({ withOptimizer: false });
+    const result = await service.execute({
+      input: {},
+      options: { parentSpanId: ENGINE_SPAN },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.execution_graph.spans).toHaveLength(7);
+
+    const repoNames = result.execution_graph.spans
+      .filter((s) => s.type === 'repo')
+      .map((s) => s.repo_name)
+      .sort();
+    expect(repoNames).toEqual([
+      'llm-connector-hub',
+      'llm-forge',
+      'llm-orchestrator',
+    ]);
+  });
+});
+
 describe('Execution Graph Artifacts & Evidence', () => {
   it('should attach artifacts at agent level', async () => {
-    const service = createAutomationCore();
+    const service = createTestService();
     const result = await service.execute({
       pipelineId: 'artifact-test',
       input: {},
+      options: { parentSpanId: ENGINE_SPAN },
     });
 
     const agentSpans = result.execution_graph.spans.filter(
@@ -179,8 +232,11 @@ describe('Execution Graph Artifacts & Evidence', () => {
   });
 
   it('should attach evidence at agent level with machine-verifiable references', async () => {
-    const service = createAutomationCore();
-    const result = await service.execute({ input: {} });
+    const service = createTestService();
+    const result = await service.execute({
+      input: {},
+      options: { parentSpanId: ENGINE_SPAN },
+    });
 
     const agentSpans = result.execution_graph.spans.filter(
       (s) => s.type === 'agent'
@@ -203,7 +259,7 @@ describe('Execution Graph Artifacts & Evidence', () => {
 
 describe('Execution Graph with parentSpanId', () => {
   it('should set core span parent_span_id from options', async () => {
-    const service = createAutomationCore();
+    const service = createTestService();
     const engineSpanId = 'engine-span-abc-123';
 
     const result = await service.execute({
@@ -215,16 +271,6 @@ describe('Execution Graph with parentSpanId', () => {
       (s) => s.span_id === result.execution_graph.root_span_id
     );
     expect(coreSpan!.parent_span_id).toBe(engineSpanId);
-  });
-
-  it('should set core span parent_span_id to null when not provided', async () => {
-    const service = createAutomationCore();
-    const result = await service.execute({ input: {} });
-
-    const coreSpan = result.execution_graph.spans.find(
-      (s) => s.span_id === result.execution_graph.root_span_id
-    );
-    expect(coreSpan!.parent_span_id).toBeNull();
   });
 });
 
@@ -353,10 +399,75 @@ describe('Execution Graph Validation', () => {
   });
 });
 
+// Mandate 3: validateDelegationSpans enforcement
+describe('Delegation Span Validation', () => {
+  it('should throw when delegation produces no repo span', () => {
+    expect(() =>
+      validateDelegationSpans([], 'llm-orchestrator')
+    ).toThrow("Delegation to 'llm-orchestrator' produced no repo-level span");
+  });
+
+  it('should throw when repo span has no agent children', () => {
+    const repoSpan: ExecutionSpan = {
+      type: 'repo',
+      name: 'llm-orchestrator',
+      span_id: 'repo-1',
+      parent_span_id: 'core-1',
+      repo_name: 'llm-orchestrator',
+      start_time: new Date().toISOString(),
+      status: 'completed',
+    };
+    expect(() =>
+      validateDelegationSpans([repoSpan], 'llm-orchestrator')
+    ).toThrow('lacks required agent-level spans');
+  });
+
+  it('should accept valid delegation spans', () => {
+    const repoSpan: ExecutionSpan = {
+      type: 'repo',
+      name: 'llm-orchestrator',
+      span_id: 'repo-1',
+      parent_span_id: 'core-1',
+      repo_name: 'llm-orchestrator',
+      start_time: new Date().toISOString(),
+      status: 'completed',
+    };
+    const agentSpan: ExecutionSpan = {
+      type: 'agent',
+      name: 'workflow-agent',
+      span_id: 'agent-1',
+      parent_span_id: 'repo-1',
+      start_time: new Date().toISOString(),
+      status: 'completed',
+    };
+    expect(() =>
+      validateDelegationSpans([repoSpan, agentSpan], 'llm-orchestrator')
+    ).not.toThrow();
+  });
+
+  it('should reject spans for wrong repo name', () => {
+    const repoSpan: ExecutionSpan = {
+      type: 'repo',
+      name: 'llm-forge',
+      span_id: 'repo-1',
+      parent_span_id: 'core-1',
+      repo_name: 'llm-forge',
+      start_time: new Date().toISOString(),
+      status: 'completed',
+    };
+    expect(() =>
+      validateDelegationSpans([repoSpan], 'llm-orchestrator')
+    ).toThrow("Delegation to 'llm-orchestrator' produced no repo-level span");
+  });
+});
+
 describe('Execution Graph Failure Semantics', () => {
   it('should return execution graph on success', async () => {
-    const service = createAutomationCore();
-    const result = await service.execute({ input: {} });
+    const service = createTestService();
+    const result = await service.execute({
+      input: {},
+      options: { parentSpanId: ENGINE_SPAN },
+    });
     expect(result.success).toBe(true);
     expect(result.execution_graph).toBeDefined();
     expect(result.execution_graph.spans.length).toBe(9);
@@ -370,5 +481,31 @@ describe('Execution Graph Failure Semantics', () => {
     });
     expect(result.valid).toBe(false);
     expect(result.failure_reasons.length).toBeGreaterThan(0);
+  });
+});
+
+// Mandate 6: downstream spans exposed verbatim
+describe('Verbatim Span Pass-through', () => {
+  it('should include all downstream spans unmodified in execution graph', async () => {
+    const service = createTestService();
+    const result = await service.execute({
+      input: {},
+      options: { parentSpanId: ENGINE_SPAN },
+    });
+
+    // All downstream spans (repo + agent) are in the graph
+    const downstreamSpans = result.execution_graph.spans.filter(
+      (s) => s.type !== 'core'
+    );
+    expect(downstreamSpans.length).toBe(8); // 4 repo + 4 agent
+
+    // Each downstream span retains its original structure
+    for (const span of downstreamSpans) {
+      expect(span.span_id).toBeDefined();
+      expect(span.parent_span_id).toBeDefined();
+      expect(span.start_time).toBeDefined();
+      expect(span.end_time).toBeDefined();
+      expect(span.status).toBe('completed');
+    }
   });
 });

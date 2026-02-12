@@ -1,5 +1,25 @@
 // Adapter exports for LLM-Automation-Core
-export { createForgeAdapter, type ForgeAdapter } from './forge-adapter.js';
-export { createOptimizerAdapter, type OptimizerAdapter } from './optimizer-adapter.js';
-export { createOrchestratorAdapter, type OrchestratorAdapter } from './orchestrator-adapter.js';
-export { createConnectorAdapter, type ConnectorAdapter } from './connector-adapter.js';
+export {
+  createForgeAdapter,
+  createStubForgeClient,
+  type ForgeAdapter,
+  type ForgeClient,
+} from './forge-adapter.js';
+export {
+  createOptimizerAdapter,
+  createStubOptimizerClient,
+  type OptimizerAdapter,
+  type OptimizerClient,
+} from './optimizer-adapter.js';
+export {
+  createOrchestratorAdapter,
+  createStubOrchestratorClient,
+  type OrchestratorAdapter,
+  type OrchestratorClient,
+} from './orchestrator-adapter.js';
+export {
+  createConnectorAdapter,
+  createStubConnectorHubClient,
+  type ConnectorAdapter,
+  type ConnectorHubClient,
+} from './connector-adapter.js';

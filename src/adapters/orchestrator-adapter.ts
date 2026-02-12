@@ -7,8 +7,8 @@ import type {
 } from '../types.js';
 import { createSpan, completeSpan } from '../execution/spans.js';
 
-/** Stub interface matching LLM-Orchestrator's exported API */
-interface OrchestratorClient {
+/** Interface matching LLM-Orchestrator's exported API */
+export interface OrchestratorClient {
   createWorkflow(pipelineId: string): Promise<WorkflowContext>;
   executeWorkflow(
     context: WorkflowContext,
@@ -18,9 +18,9 @@ interface OrchestratorClient {
   ): Promise<unknown>;
 }
 
-/** Creates an orchestrator adapter - in production, inject the real client */
-export function createOrchestratorAdapter(client?: OrchestratorClient): OrchestratorAdapter {
-  return new OrchestratorAdapter(client ?? createSimulatorClient());
+/** Creates an orchestrator adapter - client is REQUIRED (mandate 5) */
+export function createOrchestratorAdapter(client: OrchestratorClient): OrchestratorAdapter {
+  return new OrchestratorAdapter(client);
 }
 
 class OrchestratorAdapter {
@@ -80,8 +80,8 @@ class OrchestratorAdapter {
   }
 }
 
-/** Simulator-compatible stub client */
-function createSimulatorClient(): OrchestratorClient {
+/** Stub client for testing and development only */
+export function createStubOrchestratorClient(): OrchestratorClient {
   return {
     async createWorkflow(pipelineId: string) {
       return {

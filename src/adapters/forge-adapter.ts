@@ -4,15 +4,15 @@
 import type { PipelineDefinition, InstrumentedResult, SpanArtifact } from '../types.js';
 import { createSpan, completeSpan } from '../execution/spans.js';
 
-/** Stub interface matching LLM-Forge's exported API */
-interface ForgeClient {
+/** Interface matching LLM-Forge's exported API */
+export interface ForgeClient {
   getPipeline(id: string): Promise<PipelineDefinition | null>;
   getDefaultPipeline(): Promise<PipelineDefinition>;
 }
 
-/** Creates a forge adapter - in production, inject the real client */
-export function createForgeAdapter(client?: ForgeClient): ForgeAdapter {
-  return new ForgeAdapter(client ?? createSimulatorClient());
+/** Creates a forge adapter - client is REQUIRED (mandate 5) */
+export function createForgeAdapter(client: ForgeClient): ForgeAdapter {
+  return new ForgeAdapter(client);
 }
 
 class ForgeAdapter {
@@ -66,8 +66,8 @@ class ForgeAdapter {
   }
 }
 
-/** Simulator-compatible stub client */
-function createSimulatorClient(): ForgeClient {
+/** Stub client for testing and development only */
+export function createStubForgeClient(): ForgeClient {
   return {
     async getPipeline(id: string) {
       return { id, steps: [{ id: 'step-1', type: 'llm-call', config: {} }] };

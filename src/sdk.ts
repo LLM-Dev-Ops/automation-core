@@ -1,7 +1,7 @@
 // LLM-Automation-Core SDK
 // Programmatic interface for automation integration
 
-import { createAutomationCore, AutomationService } from './lib.js';
+import { AutomationService } from './services/index.js';
 import type { AutomationRequest, CoreExecutionResult, RoutingHints } from './types.js';
 
 export type { AutomationRequest, CoreExecutionResult, RoutingHints };
@@ -21,8 +21,8 @@ export type {
 export class AutomationClient {
   private service: AutomationService;
 
-  constructor(service?: AutomationService) {
-    this.service = service ?? createAutomationCore();
+  constructor(service: AutomationService) {
+    this.service = service;
   }
 
   /** Execute an automation request with full execution graph */
@@ -33,18 +33,19 @@ export class AutomationClient {
   /** Convenience method for simple execution */
   async run(
     input: Record<string, unknown>,
-    options?: { pipelineId?: string; hints?: RoutingHints }
+    options?: { pipelineId?: string; hints?: RoutingHints; parentSpanId?: string }
   ): Promise<CoreExecutionResult> {
     return this.execute({
       input,
       pipelineId: options?.pipelineId,
       routingHints: options?.hints,
+      options: { parentSpanId: options?.parentSpanId },
     });
   }
 }
 
-/** Create a new automation client */
-export function createClient(service?: AutomationService): AutomationClient {
+/** Create a new automation client - service is required */
+export function createClient(service: AutomationService): AutomationClient {
   return new AutomationClient(service);
 }
 

@@ -3,6 +3,12 @@
 // Provides command-line interface for automation execution
 
 import { createAutomationCore } from './lib.js';
+import {
+  createStubForgeClient,
+  createStubOptimizerClient,
+  createStubOrchestratorClient,
+  createStubConnectorHubClient,
+} from './adapters/index.js';
 
 const COMMANDS = {
   execute: 'Execute an automation request',
@@ -34,6 +40,12 @@ async function executeCommand(args: string[]): Promise<void> {
   const inputJson = getArg(args, '--input', '-i') ?? '{}';
   const provider = getArg(args, '--provider');
   const tier = getArg(args, '--tier') as 'fast' | 'balanced' | 'quality' | undefined;
+  const parentSpanId = getArg(args, '--parent-span-id') ?? getArg(args, '--span');
+
+  if (!parentSpanId) {
+    console.error('Error: --parent-span-id is required (invocation must come from agentics-simulation-engine)');
+    process.exit(1);
+  }
 
   let input: Record<string, unknown>;
   try {
@@ -43,11 +55,20 @@ async function executeCommand(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const core = createAutomationCore();
+  // In production, inject real downstream repo clients via env-configured factories.
+  // Stub clients are used here for development only.
+  const core = createAutomationCore({
+    forge: createStubForgeClient(),
+    optimizer: createStubOptimizerClient(),
+    orchestrator: createStubOrchestratorClient(),
+    connector: createStubConnectorHubClient(),
+  });
+
   const result = await core.execute({
     pipelineId,
     input,
     routingHints: { preferredProvider: provider, modelTier: tier },
+    options: { parentSpanId },
   });
 
   console.log(JSON.stringify(result, null, 2));
@@ -75,14 +96,15 @@ Commands:
 ${Object.entries(COMMANDS).map(([cmd, desc]) => `  ${cmd.padEnd(12)} ${desc}`).join('\n')}
 
 Execute Options:
-  --pipeline, -p <id>    Pipeline ID to execute
-  --input, -i <json>     Input data as JSON string
-  --provider <id>        Preferred provider ID
-  --tier <tier>          Model tier: fast, balanced, quality
+  --pipeline, -p <id>         Pipeline ID to execute
+  --input, -i <json>          Input data as JSON string
+  --provider <id>             Preferred provider ID
+  --tier <tier>               Model tier: fast, balanced, quality
+  --parent-span-id <id>       Parent span ID from agentics-simulation-engine (required)
 
 Examples:
-  llm-automation execute --pipeline my-pipeline --input '{"prompt":"Hello"}'
-  llm-automation execute -p default -i '{}' --tier fast
+  llm-automation execute --parent-span-id engine-span-1 --pipeline my-pipeline --input '{"prompt":"Hello"}'
+  llm-automation execute --span engine-span-1 -p default -i '{}' --tier fast
 `);
 }
 

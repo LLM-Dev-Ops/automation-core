@@ -1,34 +1,74 @@
-// Core automation service - the main glue logic for LLM-Automation-Core
-// Coordinates between LLM-Forge, LLM-Auto-Optimizer, LLM-Orchestrator, and LLM-Connector-Hub
-// Instrumented for agentics-execution-engine with hierarchical execution spans
+// Core automation service - execution coordinator for multi-repo workflows
+//
+// MANDATES:
+// 1. This Core MUST be invoked by agentics-simulation-engine (parentSpanId required)
+// 2. For simulation workflows, delegate to: LLM-Orchestrator, LLM-Connector-Hub,
+//    LLM-Auto-Optimizer (if enabled)
+// 3. Each delegation MUST create a repo-level span, require agent-level spans,
+//    fail if spans are missing
+// 4. This Core MUST NOT simulate results itself - it coordinates, it does not compute
+// 5. Execution without downstream repos is INVALID
+// 6. Expose all downstream spans verbatim
 
 import type {
   AutomationRequest, CoreExecutionResult, ExecutionMetadata, ExecutionSpan,
+  OptimizationSignal,
 } from '../types.js';
 import type { ForgeAdapter } from '../adapters/forge-adapter.js';
 import type { OptimizerAdapter } from '../adapters/optimizer-adapter.js';
 import type { OrchestratorAdapter } from '../adapters/orchestrator-adapter.js';
 import type { ConnectorAdapter } from '../adapters/connector-adapter.js';
 import { createSpan, completeSpan } from '../execution/spans.js';
-import { buildExecutionGraph, validateExecutionGraph } from '../execution/graph.js';
+import {
+  buildExecutionGraph, validateDelegationSpans, validateExecutionGraph,
+} from '../execution/graph.js';
 
 export interface AutomationServiceDeps {
   forge: ForgeAdapter;
-  optimizer: OptimizerAdapter;
+  optimizer?: OptimizerAdapter;
   orchestrator: OrchestratorAdapter;
   connector: ConnectorAdapter;
 }
 
-/** Main automation service - thin glue coordinating integrated systems */
+/** Execution coordinator for multi-repo workflows. Coordinates, does not compute. */
 export class AutomationService {
-  constructor(private deps: AutomationServiceDeps) {}
+  constructor(private deps: AutomationServiceDeps) {
+    // Mandate 5: Execution without downstream repos is INVALID.
+    if (!deps.forge) {
+      throw new Error(
+        'Missing required downstream repo: llm-forge. ' +
+        'Execution without downstream repos is invalid.'
+      );
+    }
+    if (!deps.orchestrator) {
+      throw new Error(
+        'Missing required downstream repo: llm-orchestrator. ' +
+        'Execution without downstream repos is invalid.'
+      );
+    }
+    if (!deps.connector) {
+      throw new Error(
+        'Missing required downstream repo: llm-connector-hub. ' +
+        'Execution without downstream repos is invalid.'
+      );
+    }
+  }
 
   async execute(request: AutomationRequest): Promise<CoreExecutionResult> {
+    // Mandate 1: This Core MUST be invoked by agentics-simulation-engine.
+    // Require parentSpanId to prove invocation from an instrumented execution context.
+    if (!request.options?.parentSpanId) {
+      throw new Error(
+        'Invocation rejected: options.parentSpanId is required. ' +
+        'This core must be invoked by agentics-simulation-engine, not called directly.'
+      );
+    }
+
     const startTime = Date.now();
     const allSpans: ExecutionSpan[] = [];
-    const parentSpanId = request.options?.parentSpanId ?? null;
+    const parentSpanId = request.options.parentSpanId;
 
-    // 1. Create core-level execution span
+    // Create core-level execution span (linked to simulation engine's span)
     const coreSpan = createSpan({
       type: 'core',
       name: 'automation-core',
@@ -37,38 +77,47 @@ export class AutomationService {
     allSpans.push(coreSpan);
 
     try {
-      // 2. Resolve pipeline definition via LLM-Forge
+      // Step 1: Resolve pipeline via LLM-Forge
       const forgeResult = await this.deps.forge.resolvePipeline(
         request.pipelineId,
         coreSpan.span_id
       );
+      // Mandate 3: validate delegation produced repo + agent spans
+      validateDelegationSpans(forgeResult.spans, 'llm-forge');
+      // Mandate 6: expose downstream spans verbatim
       allSpans.push(...forgeResult.spans);
       const pipeline = forgeResult.result;
 
-      // 3. Get optimization signal from LLM-Auto-Optimizer
-      const optimizerResult = await this.deps.optimizer.getSignal(
-        pipeline,
-        request.routingHints,
-        coreSpan.span_id
-      );
-      allSpans.push(...optimizerResult.spans);
-      const signal = optimizerResult.result;
+      // Step 2: Optimization signal from LLM-Auto-Optimizer (mandate 2: if enabled)
+      let signal: OptimizationSignal = {};
+      if (this.deps.optimizer) {
+        const optimizerResult = await this.deps.optimizer.getSignal(
+          pipeline,
+          request.routingHints,
+          coreSpan.span_id
+        );
+        validateDelegationSpans(optimizerResult.spans, 'llm-auto-optimizer');
+        allSpans.push(...optimizerResult.spans);
+        signal = optimizerResult.result;
+      }
 
-      // 4. Resolve provider via LLM-Connector-Hub
+      // Step 3: Resolve provider via LLM-Connector-Hub (mandate 2: required)
       const connectorResult = await this.deps.connector.resolveProvider(
         signal,
         coreSpan.span_id
       );
+      validateDelegationSpans(connectorResult.spans, 'llm-connector-hub');
       allSpans.push(...connectorResult.spans);
       const provider = connectorResult.result;
 
-      // 5. Execute workflow through LLM-Orchestrator
+      // Step 4: Execute workflow via LLM-Orchestrator (mandate 2: required)
       const orchestratorResult = await this.deps.orchestrator.execute(
         pipeline,
         provider,
         request.input,
         coreSpan.span_id
       );
+      validateDelegationSpans(orchestratorResult.spans, 'llm-orchestrator');
       allSpans.push(...orchestratorResult.spans);
       const { workflowId, output } = orchestratorResult.result;
 
@@ -89,7 +138,6 @@ export class AutomationService {
       const validation = validateExecutionGraph(graph);
 
       if (!validation.valid) {
-        // Mark core span as failed per enforcement semantics
         allSpans[0] = completeSpan(coreSpan, { status: 'failed' });
         const failedGraph = buildExecutionGraph(coreSpan.span_id, allSpans);
         return {
@@ -106,7 +154,7 @@ export class AutomationService {
       // Complete core span as failed
       allSpans[0] = completeSpan(coreSpan, { status: 'failed' });
 
-      // Collect any spans attached to the error by adapters
+      // Collect any spans attached to the error by adapters (verbatim)
       const errorSpans = (error as { spans?: ExecutionSpan[] }).spans;
       if (errorSpans) {
         allSpans.push(...errorSpans);
