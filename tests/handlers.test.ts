@@ -1,5 +1,7 @@
 // Tests for request handlers
+import { jest } from '@jest/globals';
 import { handleExecute } from '../src/handlers/execute-handler.js';
+import { handleWorkflowTrigger } from '../src/handlers/workflow-trigger-handler.js';
 import { AutomationService } from '../src/services/automation-service.js';
 import {
   createForgeAdapter,
@@ -63,5 +65,78 @@ describe('handleExecute', () => {
     await expect(
       handleExecute(deps, { input: { test: true } })
     ).rejects.toThrow('parentSpanId is required');
+  });
+});
+
+describe('handleWorkflowTrigger', () => {
+  const mockFetch = jest.fn(() => Promise.resolve(new Response('ok')));
+  beforeEach(() => {
+    global.fetch = mockFetch as unknown as typeof fetch;
+    mockFetch.mockClear();
+  });
+
+  const config = {
+    orchestratorUrl: 'https://orchestrator.test',
+    optimizerUrl: 'https://optimizer.test',
+  };
+
+  it('should accept valid trigger and route to both services', () => {
+    const result = handleWorkflowTrigger(
+      { event: 'deploy', source: 'github' },
+      config,
+    );
+
+    expect(result.accepted).toBe(true);
+    expect(result.routed_to).toEqual(['llm-orchestrator', 'llm-auto-optimizer']);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('should send correct payload to orchestrator', () => {
+    handleWorkflowTrigger(
+      { event: 'deploy', source: 'github', extra: 'data' },
+      config,
+    );
+
+    const [url, options] = mockFetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://orchestrator.test/api/v1/workflows/trigger');
+    const body = JSON.parse(options.body as string);
+    expect(body.event).toBe('deploy');
+    expect(body.source).toBe('github');
+    expect(body.context).toEqual({ event: 'deploy', source: 'github', extra: 'data' });
+    expect(body.timestamp).toBeDefined();
+  });
+
+  it('should send correct payload to optimizer', () => {
+    handleWorkflowTrigger(
+      { event: 'deploy', source: 'github' },
+      config,
+    );
+
+    const [url, options] = mockFetch.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toBe('https://optimizer.test/api/v1/optimize');
+    const body = JSON.parse(options.body as string);
+    expect(body.event).toBe('deploy');
+    expect(body.metrics).toEqual({ event: 'deploy', source: 'github' });
+    expect(body.timestamp).toBeDefined();
+  });
+
+  it('should reject payload without event', () => {
+    expect(() => handleWorkflowTrigger({ source: 'github' }, config))
+      .toThrow('event must be a non-empty string');
+  });
+
+  it('should reject payload without source', () => {
+    expect(() => handleWorkflowTrigger({ event: 'deploy' }, config))
+      .toThrow('source must be a non-empty string');
+  });
+
+  it('should reject non-object payload', () => {
+    expect(() => handleWorkflowTrigger('bad', config))
+      .toThrow('must be an object');
+  });
+
+  it('should reject null payload', () => {
+    expect(() => handleWorkflowTrigger(null, config))
+      .toThrow('must be an object');
   });
 });
