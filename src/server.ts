@@ -8,7 +8,7 @@ import {
   createStubOrchestratorClient,
   createStubConnectorHubClient,
 } from './adapters/index.js';
-import { handleExecute, handleWorkflowTrigger } from './handlers/index.js';
+import { handleExecute, handleWorkflowTrigger, handleOrchestrationEvent } from './handlers/index.js';
 
 const port = parseInt(process.env.PORT || '8080', 10);
 
@@ -44,6 +44,22 @@ const server = createServer(async (req, res) => {
       const message = err instanceof Error ? err.message : 'Unknown error';
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: false, error: message }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/v1/orchestration/event') {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    try {
+      const payload = JSON.parse(body);
+      const result = handleOrchestrationEvent(payload);
+      res.writeHead(202, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'error', error: message }));
     }
     return;
   }

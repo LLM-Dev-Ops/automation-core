@@ -2,6 +2,7 @@
 import { jest } from '@jest/globals';
 import { handleExecute } from '../src/handlers/execute-handler.js';
 import { handleWorkflowTrigger } from '../src/handlers/workflow-trigger-handler.js';
+import { handleOrchestrationEvent } from '../src/handlers/orchestration-event-handler.js';
 import { AutomationService } from '../src/services/automation-service.js';
 import {
   createForgeAdapter,
@@ -138,5 +139,77 @@ describe('handleWorkflowTrigger', () => {
   it('should reject null payload', () => {
     expect(() => handleWorkflowTrigger(null, config))
       .toThrow('must be an object');
+  });
+});
+
+describe('handleOrchestrationEvent', () => {
+  const mockFetch = jest.fn(() => Promise.resolve(new Response('ok')));
+  beforeEach(() => {
+    global.fetch = mockFetch as unknown as typeof fetch;
+    mockFetch.mockClear();
+  });
+
+  const validEvent = {
+    source: 'simulation-planner',
+    event_type: 'execution.completed',
+    execution_id: 'exec-123',
+    timestamp: '2026-01-01T00:00:00Z',
+    payload: { result: 'success' },
+  };
+
+  it('should accept valid event and return 202 shape', () => {
+    const result = handleOrchestrationEvent(validEvent);
+
+    expect(result.status).toBe('accepted');
+    expect(result.execution_id).toBe('exec-123');
+  });
+
+  it('should fan out to all 4 Layer 1 services', () => {
+    handleOrchestrationEvent(validEvent);
+
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    const urls = mockFetch.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(urls).toContain('https://llm-forge-1062287243982.us-central1.run.app/api/v1/events');
+    expect(urls).toContain('https://llm-auto-optimizer-1062287243982.us-central1.run.app/api/v1/optimize');
+    expect(urls).toContain('https://llm-orchestrator-1062287243982.us-central1.run.app/api/v1/events');
+    expect(urls).toContain('https://llm-connector-hub-1062287243982.us-central1.run.app/api/v1/events');
+  });
+
+  it('should send the full event as body to each target', () => {
+    handleOrchestrationEvent(validEvent);
+
+    const bodies = mockFetch.mock.calls.map((c: unknown[]) => {
+      const opts = c[1] as RequestInit;
+      return JSON.parse(opts.body as string);
+    });
+    for (const body of bodies) {
+      expect(body.source).toBe('simulation-planner');
+      expect(body.event_type).toBe('execution.completed');
+      expect(body.execution_id).toBe('exec-123');
+      expect(body.payload).toEqual({ result: 'success' });
+    }
+  });
+
+  it('should reject payload missing source', () => {
+    expect(() => handleOrchestrationEvent({ ...validEvent, source: '' }))
+      .toThrow('source must be a non-empty string');
+  });
+
+  it('should reject payload missing event_type', () => {
+    expect(() => handleOrchestrationEvent({ ...validEvent, event_type: '' }))
+      .toThrow('event_type must be a non-empty string');
+  });
+
+  it('should reject payload missing execution_id', () => {
+    expect(() => handleOrchestrationEvent({ ...validEvent, execution_id: '' }))
+      .toThrow('execution_id must be a non-empty string');
+  });
+
+  it('should reject non-object payload', () => {
+    expect(() => handleOrchestrationEvent('bad')).toThrow('must be an object');
+  });
+
+  it('should reject null payload', () => {
+    expect(() => handleOrchestrationEvent(null)).toThrow('must be an object');
   });
 });
