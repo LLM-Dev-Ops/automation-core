@@ -33,6 +33,7 @@
     "llm-orchestrator": { "optional": true },
     "llm-connector-hub": { "optional": true }
   },
+  "license": "SEE LICENSE IN LICENSE.md",
   "engines": {
     "node": ">=20.0.0"
   },

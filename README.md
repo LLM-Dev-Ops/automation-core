@@ -1,3 +1,12 @@
+[![License: LLMDevOps-PSACL v1.0](https://img.shields.io/badge/License-LLMDevOps--PSACL%20v1.0-red.svg)](LICENSE.md)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Build](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
+[![Phase](https://img.shields.io/badge/Phase-8-blue.svg)]()
+[![Layer](https://img.shields.io/badge/Layer-3-blue.svg)]()
+[![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)]()
+[![Proprietary](https://img.shields.io/badge/Proprietary-GBA-orange.svg)](https://globalbusinessadvisors.co)
+
 # LLM-Automation-Core
 
 Phase-8 Layer-3 integration bundle for LLM automation and workflow coordination.
@@ -201,4 +210,9 @@ npm run lint
 
 ## License
 
-MIT License - see [LICENSE.md](LICENSE.md) for details.
+**Proprietary** — LLM Dev Ops Permanent Source-Available Commercial License (LLMDevOps-PSACL v1.0)
+© 2025 Global Business Advisors Inc.
+
+This software is **not** MIT or Apache licensed. All commercial, production, hosting, and redistribution use requires a paid commercial license. See [LICENSE.md](LICENSE.md) for full terms.
+
+Contact: sales@globalbusinessadvisors.co
